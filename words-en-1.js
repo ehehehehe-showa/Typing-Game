@@ -1,0 +1,13 @@
+/* questions/words-en-1.js — is_cjk:false 形式の動作サンプル(英単語練習)
+   ふりがな不要な言語はこのようにプレーンな文字列配列で登録する。 */
+registerQuestionSet({
+    id: "words_en_1",
+    name: { en: "English Words Practice", ja: "英単語練習" },
+    description: { en: "Simple English word typing practice.", ja: "簡単な英単語のタイピング練習です。" },
+    tags: { word: true, short: false, long: false, comp: false, ja: false, en: true },
+    is_cjk: false,
+    questions: [
+        "hello", "apple", "keyboard", "typing", "computer",
+        "language", "practice", "window", "monitor", "system"
+    ]
+});
