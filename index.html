@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TypingMaster Pro</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-auto cyber-overlay">
+    <script>
+        // ★システムがライトモード設定の場合、window.onload(script.js側)の完了を待つ間
+        // 一瞬だけダークテーマで表示されてしまう「テーマのちらつき(FOUC)」を防ぐため、
+        // 他の要素が描画される前にここでdark/lightだけ先に確定させる。
+        // (実際の配色パレットはtheme.js/styles/*.jsがJSで適用するため、ここでは
+        // まだ触れない。あくまでこのクラスに対応するCSS側の簡易フォールバック値
+        // (:root, body.theme-light)が一瞬表示されるだけで、JS適用後に上書きされる)
+        (function() {
+            try {
+                var saved = JSON.parse(localStorage.getItem('typingSettingsCyber')) || {};
+                var theme = saved.theme || 'auto';
+                if (theme === 'auto') {
+                    theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+                }
+                document.body.classList.remove('theme-auto');
+                document.body.classList.add('theme-' + theme);
+            } catch(e) {}
+        })();
+    </script>
+    <canvas id="bg-canvas"></canvas>
+    <div id="damage-overlay"></div>
+
+    <!-- ★app-shell: 常に同じ論理サイズ(1100x760)の「窓」として扱い、
+         実際のブラウザウィンドウサイズにはlayout.jsがtransform: scale()で
+         合わせる。画面ごとにサイズが変わったりレスポンシブ折り返しが起きたり
+         しないようにするための固定キャンバス。 -->
+    <div id="app-shell">
+
+    <div id="main-menu-screen" class="screen active">
+        <div class="panel cyber-panel">
+            <h1 class="title cyber-glitch" data-text="TYPING MASTER">TYPING MASTER</h1>
+            <div class="menu-buttons">
+                <button class="main-btn cyber-btn" onclick="openModeSelect()" data-i18n="menu_play">PLAY</button>
+                <button class="main-btn cyber-btn" onclick="openScreen('status-view'); renderStatusScreen();" data-i18n="menu_status">STATUS</button>
+                <button class="main-btn cyber-btn" onclick="openScreen('settings-view')" data-i18n="menu_settings">SETTINGS</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="mode-select-screen" class="screen sub-screen">
+        <div class="panel cyber-panel">
+            <h2 data-i18n="menu_play">PLAY</h2>
+            <div class="menu-buttons">
+                <button class="main-btn cyber-btn" onclick="selectSingleMode()" data-i18n="menu_single">SINGLE PLAYER</button>
+                <button class="main-btn cyber-btn" onclick="selectMultiMode()" data-i18n="menu_multi">MULTIPLAYER</button>
+            </div>
+            <button onclick="backToMain()" class="cyber-btn-sub" data-i18n="btn_back">Back</button>
+        </div>
+    </div>
+
+    <div id="mp-select-screen" class="screen sub-screen">
+        <div class="panel cyber-panel">
+            <h2 data-i18n="menu_multi">MULTIPLAYER</h2>
+            <p class="mp-notice" data-i18n="mp_offline_notice">* Multiplayer requires an internet connection</p>
+            <div class="menu-buttons">
+                <button class="main-btn cyber-btn" onclick="openHostNameForm()" data-i18n="mp_host">HOST</button>
+                <button class="main-btn cyber-btn" onclick="openJoinForm()" data-i18n="mp_join">JOIN</button>
+            </div>
+            <button onclick="openScreen('mode-select-screen')" class="cyber-btn-sub" data-i18n="btn_back">Back</button>
+        </div>
+    </div>
+
+    <div id="mp-host-name-screen" class="screen sub-screen">
+        <div class="panel cyber-panel">
+            <h2 data-i18n="mp_host">HOST</h2>
+            <div class="settings-panel">
+                <div class="form-group">
+                    <label data-i18n="mp_your_name">Your Name</label>
+                    <input type="text" id="mp-host-name-input" class="custom-input" data-i18n-placeholder="mp_name_placeholder" maxlength="16">
+                </div>
+                <p id="mp-host-name-error" class="mp-error hidden"></p>
+                <button onclick="submitHostName()" class="cyber-btn-primary" data-i18n="mp_next">Next</button>
+                <button onclick="openScreen('mp-select-screen')" class="cyber-btn-sub" data-i18n="btn_back">Back</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="mp-join-screen" class="screen sub-screen">
+        <div class="panel cyber-panel">
+            <h2 data-i18n="mp_join">JOIN</h2>
+            <div class="settings-panel">
+                <div class="form-group">
+                    <label data-i18n="mp_room_code">Room Code</label>
+                    <input type="text" id="mp-join-code-input" class="custom-input mp-code-input" data-i18n-placeholder="mp_code_placeholder" maxlength="8">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="mp_your_name">Your Name</label>
+                    <input type="text" id="mp-join-name-input" class="custom-input" data-i18n-placeholder="mp_name_placeholder" maxlength="16">
+                </div>
+                <p id="mp-join-error" class="mp-error hidden"></p>
+                <button onclick="submitJoinForm()" class="cyber-btn-primary" data-i18n="mp_connect">Connect</button>
+                <button onclick="openScreen('mp-select-screen')" class="cyber-btn-sub" data-i18n="btn_back">Back</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="mp-waiting-screen" class="screen sub-screen">
+        <div class="panel cyber-panel">
+            <h2 id="mp-waiting-title">Hosting</h2>
+            <div id="mp-waiting-code-box" class="mp-code-box hidden">
+                <p data-i18n="mp_room_code_label">Share this code with your opponent</p>
+                <div id="mp-room-code-text" class="mp-room-code neon-text">--------</div>
+            </div>
+            <p id="mp-waiting-status" class="mp-status"></p>
+            <button onclick="cancelMultiplayerSetup()" class="cyber-btn-sub" data-i18n="mp_cancel">Cancel</button>
+        </div>
+    </div>
+
+    <div id="play-select-screen" class="screen sub-screen">
+        <div class="panel cyber-panel play-select-panel">
+            <h2 data-i18n="menu_select_set">SELECT DATA SET</h2>
+            <div class="search-filter-area">
+                <input type="text" id="search-input" class="custom-input" data-i18n-placeholder="search_placeholder" oninput="renderQuestionSets()">
+                <div id="tag-filters" class="toggle-grid"></div>
+            </div>
+            <div id="qset-list" class="qset-grid"></div>
+            <button onclick="backFromPlaySelect()" class="cyber-btn-sub" data-i18n="btn_back">Back</button>
+        </div>
+    </div>
+
+    <div id="play-setup" class="screen sub-screen">
+        <div class="panel cyber-panel">
+            <h2 data-i18n="menu_setup">SETUP</h2>
+            <div class="settings-panel">
+                <div class="selected-qset-info">
+                    <h3 id="setup-qset-name" class="neon-text"></h3>
+                    <p id="setup-qset-desc"></p>
+                </div>
+                <div id="custom-settings-area">
+                    <div class="form-group" data-i18n-title="tooltip_play_mode">
+                        <label data-i18n="play_mode">モード</label>
+                        <select id="play-mode" class="custom-select">
+                            <option value="time" id="opt-mode-time">Time Attack</option>
+                            <option value="amount" id="opt-mode-amount">Target Questions</option>
+                        </select>
+                    </div>
+                    <div class="form-group" data-i18n-title="tooltip_play_target">
+                        <label id="label-play-target" data-i18n="play_target_time">目標値</label>
+                        <input type="number" id="play-value" class="custom-input" value="60" min="1" max="9999" oninput="if(this.value.length > 4) this.value = this.value.slice(0,4);">
+                    </div>
+                </div>
+                <div id="forced-settings-area" class="hidden">
+                    <div class="forced-notice">
+                        <p data-i18n="forced_rule" class="neon-text">【競技ルール適用中】</p>
+                        <p id="forced-info-text"></p>
+                    </div>
+                </div>
+                <button onclick="handleSetupStart()" class="cyber-btn-primary" data-i18n="play_start">START</button>
+                <button onclick="openScreen('play-select-screen')" class="cyber-btn-sub" data-i18n="btn_back">Back</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="status-view" class="screen sub-screen">
+        <div class="panel cyber-panel status-panel">
+            <h2 data-i18n="menu_status">STATUS</h2>
+            <div class="form-group status-category-group">
+                <label data-i18n="play_category">問題セット</label>
+                <select id="status-category" class="custom-select" onchange="renderStatusScreen()"></select>
+            </div>
+            <div id="chart-wrapper" class="chart-wrapper">
+                <canvas id="score-chart" width="700" height="150"></canvas>
+            </div>
+            <h3 data-i18n="status_best" class="section-title neon-text">👑 BEST RECORD</h3>
+            <div id="best-status-content" class="best-box"></div>
+            <h3 data-i18n="status_history" class="section-title">HISTORY</h3>
+            <div id="status-content" class="status-list"></div>
+            <button onclick="backToMain()" class="cyber-btn-sub" data-i18n="btn_back">Back</button>
+        </div>
+    </div>
+
+    <div id="settings-view" class="screen sub-screen">
+        <div class="panel cyber-panel">
+            <h2 data-i18n="menu_settings">SETTINGS</h2>
+            <div class="settings-panel">
+                <!-- ★各設定項目はsettings.jsのSETTINGS_SCHEMAからJSが生成する。
+                     項目を増減したいときはSETTINGS_SCHEMAを編集すればよく、
+                     ここを直接いじる必要はない。 -->
+                <div id="settings-fields"></div>
+                <div class="form-group-col" data-i18n-title="tooltip_results">
+                    <label data-i18n="setting_results">Result Display Items</label>
+                    <div id="result-toggles" class="toggle-grid"></div>
+                </div>
+                <button id="fullscreen-btn" onclick="toggleFullscreen()" class="cyber-btn-sub" data-i18n="btn_fullscreen">全画面切替</button>
+                <button onclick="backToMain()" class="cyber-btn-sub" data-i18n="btn_back">Back</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="countdown-screen" class="screen">
+        <div id="countdown-number" class="cyber-glitch" data-text="3">3</div>
+    </div>
+
+    <div id="game-screen" class="screen game-layout">
+        <div id="status-bar" class="cyber-panel">
+            <div class="stat-box">SCORE: <span id="score" class="neon-text">0</span></div>
+            <div class="stat-box stat-combo-label">COMBO: <span id="combo" class="neon-text combo-text">0</span></div>
+            <div class="stat-box">TIME: <span id="time-display" class="neon-text">0.0</span>s</div>
+            <div class="stat-box mp-only-stat"><span id="mp-opponent-name-tag"></span>: <span id="mp-opponent-score" class="neon-text">0</span></div>
+            <div class="stat-box meta-text">[ESC] EXIT</div>
+        </div>
+        <div id="typing-area" class="cyber-panel">
+            <div id="blocks-container"></div>
+        </div>
+        <div id="keyboard-container" class="cyber-panel"></div>
+    </div>
+
+    <div id="result-screen" class="screen">
+        <div class="panel cyber-panel result-panel">
+            <h2>SYSTEM REPORT</h2>
+            <div class="final-score-display">
+                SCORE: <span id="result-score-val" class="neon-text">0</span>
+            </div>
+            <div id="dynamic-result-grid" class="result-grid"></div>
+            <div id="mp-opponent-result" class="mp-opponent-result hidden">
+                <span id="mp-opponent-result-name" class="mp-opponent-result-name"></span>
+                <span data-i18n="res_wpm">WPM</span>: <span id="mp-opponent-result-wpm"></span>
+                &nbsp;|&nbsp; SCORE: <span id="mp-opponent-result-score"></span>
+            </div>
+            <div class="result-actions">
+                <button onclick="retryPlay()" class="cyber-btn-primary" data-i18n="btn_retry">RETRY</button>
+                <button onclick="backToMain()" class="cyber-btn-sub" data-i18n="btn_back">Back</button>
+            </div>
+        </div>
+    </div>
+
+    </div><!-- /#app-shell -->
+
+    <div id="status-modal" class="modal-overlay">
+        <div class="modal-content cyber-panel">
+            <h3>DETAIL RECORD</h3>
+            <div id="modal-detail-grid" class="result-grid"></div>
+            <button onclick="closeModal()" class="cyber-btn-sub" data-i18n="detail_close">Close</button>
+        </div>
+    </div>
+
+    <!-- 読み込み順は依存関係に沿っている。詳細はscript.js冒頭のコメントを参照 -->
+    <script src="utils.js"></script>
+    <script src="lang.js"></script>
+    <script src="settings.js"></script>
+    <script src="records.js"></script>
+    <script src="audio.js"></script>
+    <!-- ★マルチプレイ(PeerJS)は接続確立にインターネット上の仲介サーバーが要るため、
+         このライブラリの読み込み自体もネットワーク接続が必要。シングルプレイは
+         このスクリプトが読み込めなくても(オフラインでも)問題なく動作する。 -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="multiplayer.js"></script>
+    <script src="questions.js"></script>
+    <!-- 個々の問題セットはdeferで読み込む。アプリ本体の起動を問題データの量に
+         引っ張られて遅くしないためと、questions.js(登録関数)が先に実行され終わって
+         いることを保証するため。1行削る/コメントアウトするだけでそのセットを
+         無効化できる。 -->
+    <script defer src="questions/words-ja-1.js"></script>
+    <script defer src="questions/long-ja-1.js"></script>
+    <script defer src="questions/words-en-1.js"></script>
+    <script defer src="questions/score-ja-1.js"></script>
+    <script src="typing-engine.js"></script>
+    <script src="theme.js"></script>
+    <!-- ★配色スタイルもquestions/と同じ考え方で1スタイル=1ファイル。
+         増やす/減らす/一時的に無効化するときはこの<script>タグを足す/消す/
+         コメントアウトするだけでよい。 -->
+    <script src="styles/cyber.js"></script>
+    <script src="styles/minimal.js"></script>
+    <script src="layout.js"></script>
+    <script src="hud.js"></script>
+    <script src="navigation.js"></script>
+    <script src="background.js"></script>
+    <script src="screens/play-select.js"></script>
+    <script src="screens/settings-screen.js"></script>
+    <script src="screens/status-screen.js"></script>
+    <script src="screens/mode-select.js"></script>
+    <script src="game.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
