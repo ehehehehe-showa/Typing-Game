@@ -33,7 +33,7 @@ function toggleFullscreen() { !document.fullscreenElement ? document.documentEle
 // 12箇所以上に同じ記述が散らばりHTMLが冗長だったため、イベント委譲に一本化。
 // mouseoverはバブリングするため、e.relatedTargetが対象要素の外から来た場合のみ
 // 発火させることで mouseenter と同じ「入った瞬間だけ」の挙動を再現している。
-const HOVER_SOUND_SELECTOR = '.cyber-btn, .cyber-btn-primary, .cyber-btn-sub, .status-row, .best-box';
+const HOVER_SOUND_SELECTOR = '.cyber-btn, .cyber-btn-primary, .cyber-btn-sub, .status-row, .best-box, .qset-card, .mp-participant-row';
 function initHoverSounds() {
     document.addEventListener('mouseover', (e) => {
         const target = e.target.closest(HOVER_SOUND_SELECTOR);

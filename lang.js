@@ -32,7 +32,16 @@ const translations = {
         mp_connecting_status: "ホストに接続しています...", mp_connection_failed: "接続に失敗しました。コードを確認してください。",
         mp_cancel: "キャンセル", mp_opponent: "相手", mp_you: "あなた",
         mp_offline_notice: "※マルチプレイにはインターネット接続が必要です",
-        mp_opponent_disconnected: "(相手が切断しました)"
+        mp_opponent_disconnected: "(相手が切断しました)",
+        mp_copied: "コピーしました", mp_copy: "コピー", mp_participants: "参加者", mp_kick: "退出させる",
+        mp_host_tag: "ホスト", mp_start_round: "ゲーム開始", mp_waiting_for_start: "ホストの開始を待っています",
+        mp_allow_late_join: "ゲーム中の途中参加を許可する",
+        mp_name_taken: "その名前は既に使われています", mp_room_full: "満員です",
+        mp_connected_waiting: "接続しました。ホストの開始を待っています...",
+        mp_waiting_host_round: "接続完了", mp_host_left: "ホストが退出したため対戦を終了しました",
+        mp_all_left: "参加者が全員退出したため対戦を終了しました",
+        mp_you_were_kicked: "ホストにより退出させられました",
+        mp_continue: "続ける", mp_ranking_title: "対戦結果", mp_finished_count: "完了"
     },
     en: {
         menu_play: "PLAY", menu_status: "STATUS", menu_settings: "SETTINGS",
@@ -61,7 +70,16 @@ const translations = {
         mp_connecting_status: "Connecting to host...", mp_connection_failed: "Connection failed. Please check the code.",
         mp_cancel: "Cancel", mp_opponent: "Opponent", mp_you: "You",
         mp_offline_notice: "* Multiplayer requires an internet connection",
-        mp_opponent_disconnected: "(Opponent disconnected)"
+        mp_opponent_disconnected: "(Opponent disconnected)",
+        mp_copied: "Copied", mp_copy: "Copy", mp_participants: "Participants", mp_kick: "Kick",
+        mp_host_tag: "HOST", mp_start_round: "Start Game", mp_waiting_for_start: "Waiting for host to start",
+        mp_allow_late_join: "Allow joining while a game is in progress",
+        mp_name_taken: "That name is already taken", mp_room_full: "Room is full",
+        mp_connected_waiting: "Connected. Waiting for host to start...",
+        mp_waiting_host_round: "Connected", mp_host_left: "Match ended: host disconnected",
+        mp_all_left: "Match ended: all participants left",
+        mp_you_were_kicked: "You were removed by the host",
+        mp_continue: "Continue", mp_ranking_title: "Results", mp_finished_count: "finished"
     }
 };
 let currentLang = "ja";

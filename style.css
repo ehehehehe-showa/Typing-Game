@@ -145,6 +145,19 @@ body.theme-light.cyber-overlay:not(.no-glow)::after {
     max-width: 500px;
 }
 
+/* ★「メニュー系」画面(メインメニュー・シングル/マルチ選択・ホスト/参加フォーム・
+   待機画面・ランキング・問題設定・設定)の幅と最低高さをここで統一する。
+   以前はmax-widthのみだったため、ボタン数や文言が少ない画面(モード選択など)は
+   中身に合わせて実際の幅が縮み、画面によってバラバラの太さに見えていた。
+   固定widthにすることで内容量に関わらず全て同じ幅で揃う。
+   高さはmin-heightに留め、設定画面のように中身が多い画面はその分自然に
+   伸びられるようにしている。 */
+.menu-panel {
+    width: 500px;
+    min-height: 420px;
+    box-sizing: border-box;
+}
+
 .cyber-panel::before {
     content: '';
     position: absolute;
@@ -158,8 +171,11 @@ body.theme-light.cyber-overlay:not(.no-glow)::after {
 
 /* ★設定画面は項目数(言語/テーマ/スタイル/音量3種/結果表示)が多く、
    デフォルトの500pxだと縦に間延びして窮屈だったため、もう少し自然な太さに広げる */
+/* ★.menu-panelのwidth:500pxより優先させるため、同じwidthプロパティで
+   ID込みの高い詳細度から上書きする(max-widthのままだとwidth:500pxの方が
+   小さく、上書きされずに620pxが効かなくなるため) */
 #settings-view .cyber-panel {
-    max-width: 620px;
+    width: 620px;
 }
 
 /* ★ #status-bar の追加で横幅拡張 */
@@ -1094,10 +1110,6 @@ input[type="checkbox"]:focus-visible {
     text-align: left;
 }
 
-.mp-code-input {
-    text-transform: uppercase;
-}
-
 .mp-code-box {
     margin: 20px 0;
     padding: 20px;
@@ -1106,11 +1118,29 @@ input[type="checkbox"]:focus-visible {
     background: rgba(var(--accent-rgb), 0.05);
 }
 
+.mp-code-input {
+    text-transform: uppercase;
+}
+
+.mp-code-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 10px;
+}
+
 .mp-room-code {
     font-size: 2.2rem;
     font-weight: bold;
     letter-spacing: 6px;
-    margin-top: 10px;
+}
+
+.mp-copy-btn {
+    margin-top: 0;
+    width: auto;
+    padding: 8px 16px;
+    font-size: 0.85rem;
 }
 
 .mp-status {
@@ -1119,25 +1149,139 @@ input[type="checkbox"]:focus-visible {
     margin: 15px 0 25px 0;
 }
 
-/* 対戦相手のスコア表示はマルチプレイ中(body.mp-active)だけ見せる */
-.mp-only-stat {
-    display: none;
-}
-body.mp-active .mp-only-stat {
-    display: flex;
+.mp-participants-title {
+    text-align: left;
+    margin-bottom: 10px;
 }
 
-.mp-opponent-result {
-    margin-top: -5px;
+.mp-participant-list {
+    max-height: 160px;
+    overflow-y: auto;
+    text-align: left;
+    margin-bottom: 10px;
+}
+
+.mp-participant-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.mp-role-tag {
+    font-size: 0.75rem;
+    color: var(--accent-color);
+    border: 1px solid var(--accent-color);
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+
+.mp-kick-btn {
+    background: none;
+    border: 1px solid var(--error-color);
+    color: var(--error-color);
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+.mp-kick-btn:hover {
+    background: var(--error-color);
+    color: var(--bg-color);
+}
+
+.mp-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: flex-start;
     margin-bottom: 20px;
-    padding: 12px;
+    cursor: pointer;
+}
+
+#mp-select-btn:disabled,
+.mp-btn-disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ゲーム画面右上に浮かせる、マルチプレイ中の簡易リーダーボード
+   (シングルプレイ中は要素はあるが空+非表示にしておく) */
+.mp-live-leaderboard {
+    display: none;
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 180px;
+    background: var(--panel-bg);
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    color: var(--text-muted);
+    padding: 8px;
+    font-size: 0.8rem;
+    z-index: 20;
 }
-.mp-opponent-result-name {
+body.mp-active .mp-live-leaderboard {
+    display: block;
+}
+.mp-lb-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 3px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.mp-lb-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+}
+.mp-lb-me {
     color: var(--accent-color);
     font-weight: bold;
-    margin-right: 8px;
+}
+
+/* ランキング(対戦結果)画面 */
+.mp-ranking-list {
+    text-align: left;
+    margin-bottom: 15px;
+}
+.mp-rank-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 15px;
+    border-bottom: 1px solid var(--border-color);
+}
+.mp-rank-num {
+    width: 40px;
+    color: var(--text-muted);
+    font-weight: bold;
+}
+.mp-rank-name {
+    flex: 1;
+}
+.mp-rank-score {
+    font-weight: bold;
+}
+.mp-rank-me {
+    background: rgba(var(--accent-rgb), 0.08);
+    border-radius: 6px;
+}
+.mp-rank-me .mp-rank-num,
+.mp-rank-me .mp-rank-name {
+    color: var(--accent-color);
+}
+.mp-rank-sep {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 4px;
+}
+
+.qset-empty-message {
+    text-align: center;
+    grid-column: 1 / -1;
+    color: var(--text-muted);
 }
 
