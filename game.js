@@ -40,7 +40,7 @@ function startCountdown() {
     runCountdown();
 }
 
-// ★マルチプレイ(ホストが相手の参加を確認した直後、および参加者がホストからの
+// ★マルチプレイ(ホストが開始を確定した直後、および参加者がホストからの
 // 開始合図を受け取った直後)は、既に確定済みの出題データを使って、通常の
 // カウントダウン以降と同じ流れに合流する。出題順はホスト側で1度だけ確定させた
 // ものをそのまま使う(questionsArrはシャッフル済みの配列そのもの)。
@@ -54,15 +54,16 @@ function startMultiplayerRound(isCjk, mode, target, questionsArr) {
     currentMode = mode; targetValue = target;
 
     document.body.classList.add('mp-active');
-    const tag = document.getElementById('mp-opponent-name-tag');
-    if (tag) tag.innerText = mpOpponentName || t('mp_opponent');
-    const oppScore = document.getElementById('mp-opponent-score');
-    if (oppScore) oppScore.innerText = '0';
-    mpOpponentFinalStats = null;
-    const oppResult = document.getElementById('mp-opponent-result');
-    if (oppResult) oppResult.classList.add('hidden');
 
     runCountdown();
+}
+
+// ホストが現在のラウンドを打ち切って次のラウンドを始めた時、まだ自分の
+// ラウンドが終わっていない参加者側で呼ばれる。記録の保存や後片付けだけ行い、
+// 直後にstartMultiplayerRound()で新しいラウンドへ切り替わる。
+function mpAbortCurrentRoundSilently() {
+    isPlaying = false;
+    if (timerRafId) { cancelAnimationFrame(timerRafId); timerRafId = null; }
 }
 
 function runCountdown() {
@@ -159,25 +160,22 @@ function nextQuestion() {
 function endGame() {
     isPlaying = false;
     if (timerRafId) { cancelAnimationFrame(timerRafId); timerRafId = null; }
-    openScreen('result-screen');
     const timeUsed = currentMode === 'time' ? (targetValue - timeLeft) : timeElapsed;
     const minUsed = timeUsed / 60;
     // WPMはプレイ中のスコアボーナス計算(hud.jsのaddScore内)と同じ「正解数ベース」に統一している
     const vals = { total: stats.total, wpm: minUsed > 0 ? Math.floor((stats.correct / 5) / minUsed) : 0, cpm: minUsed > 0 ? Math.floor(stats.total / minUsed) : 0, kpm: minUsed > 0 ? Math.floor(stats.correct / minUsed) : 0, correct: stats.correct, miss: stats.miss, acc: stats.total === 0 ? "0%" : ((stats.correct / stats.total) * 100).toFixed(1) + "%", err: stats.total === 0 ? "0%" : ((stats.miss / stats.total) * 100).toFixed(1) + "%" };
 
-    document.getElementById('result-score-val').innerText = stats.score.toLocaleString();
-
-    let html = ''; resultStatsKeys.forEach(key => { if(appSettings.resultToggles[key]) { html += `<div class="res-item"><span style="font-size:0.9rem; color:var(--text-muted)">${t('res_' + key)}</span><span class="res-val">${vals[key]}</span></div>`; } }); document.getElementById('dynamic-result-grid').innerHTML = html;
-
     if (mpIsMultiplayer) {
         // ★マルチプレイの対戦結果は個人の練習履歴/ベスト記録には保存しない
-        // (シングルプレイの記録と混ざってしまうため)。代わりに相手へ最終結果を送り、
-        // 相手側で既に結果が届いていればそれをすぐに反映する。
-        mpSend({ type: 'finished', name: mpMyName, score: stats.score, wpm: vals.wpm, acc: vals.acc });
-        if (mpOpponentFinalStats) mpShowOpponentResult(mpOpponentFinalStats);
-        else { const el = document.getElementById('mp-opponent-result'); if (el) el.classList.add('hidden'); }
+        // (シングルプレイの記録と混ざってしまうため)。代わりにスコア順のランキング画面へ。
+        mpSendFinished(vals.wpm, vals.acc);
+        mpEnterRankingScreen(null);
         return;
     }
+
+    document.getElementById('result-score-val').innerText = stats.score.toLocaleString();
+    let html = ''; resultStatsKeys.forEach(key => { if(appSettings.resultToggles[key]) { html += `<div class="res-item"><span style="font-size:0.9rem; color:var(--text-muted)">${t('res_' + key)}</span><span class="res-val">${vals[key]}</span></div>`; } }); document.getElementById('dynamic-result-grid').innerHTML = html;
+    openScreen('result-screen');
 
     // ★競技設定(forceSettings)のセットをEscape等で途中終了した場合は、
     // 未完走の記録が正式なベスト/履歴に混ざらないよう保存自体をスキップする。

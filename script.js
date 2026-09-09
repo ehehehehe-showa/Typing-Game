@@ -26,4 +26,5 @@ window.onload = () => {
     initMatrixBackground();
     initHoverSounds();
     audioManager.init();
+    updateMultiplayerAvailability();
 };

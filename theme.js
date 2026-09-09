@@ -5,7 +5,8 @@
 
    スタイルの配色はCSSを一切書き換えずにJSからCSS変数として直接bodyに
    適用するため、新しいスタイルを追加したいときはCSSを触らずstyles/に
-   1ファイル追加するだけでよい(1スタイル=1ファイル、questions/と同じ運用)。
+   1ファイル追加してSTYLE_FILES配列(このファイルの下の方)に1行足すだけでよい
+   (1スタイル=1ファイル、questions/と同じ運用。index.html自体は編集不要)。
 
    スタイルの登録フォーマット:
    {
@@ -65,3 +66,18 @@ function applyAppearance(styleId, colorMode) {
     document.body.classList.remove('theme-dark', 'theme-light', 'theme-auto');
     document.body.classList.add(`theme-${resolvedMode}`);
 }
+
+// ★questions.jsと同じ考え方: 新しいスタイルを追加するときにindex.htmlへ
+// <script>タグを足す必要が無いよう、ここでファイル名の一覧から動的に
+// <script>タグを生成して読み込む。追加したいときはstyles/にファイルを作り、
+// この配列に1行足すだけでよい。
+const STYLE_FILES = [
+    'cyber.js',
+    'minimal.js'
+];
+
+STYLE_FILES.forEach(filename => {
+    const script = document.createElement('script');
+    script.src = 'styles/' + filename;
+    document.head.appendChild(script);
+});

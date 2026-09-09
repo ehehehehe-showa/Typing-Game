@@ -56,7 +56,7 @@ function renderQuestionSets() {
         }
 
         html += `
-            <div class="qset-card" onclick="selectQuestionSet('${set.id}')" onmouseenter="playCyberSound('hover')">
+            <div class="qset-card" onclick="selectQuestionSet('${set.id}')">
                 <h3>${name}</h3>
                 <p>${desc}</p>
                 <div class="qset-tags">${tagsHtml}</div>
@@ -64,7 +64,7 @@ function renderQuestionSets() {
         `;
     });
 
-    if (html === "") html = `<p style="text-align:center; grid-column: 1 / -1; color:var(--text-muted);">No sets found.</p>`;
+    if (html === "") html = `<p class="qset-empty-message">No sets found.</p>`;
     container.innerHTML = html;
 }
 
@@ -98,4 +98,6 @@ function updateFormUI() {
     } else {
         document.getElementById('label-play-target').innerText = document.getElementById('play-mode').value === 'time' ? t('play_target_time') : t('play_target_amount');
     }
+    // ★途中参加の可否チェックボックスはマルチプレイのホスト時のみ意味を持つ
+    document.getElementById('mp-setup-options').classList.toggle('hidden', mpMode !== 'host');
 }
