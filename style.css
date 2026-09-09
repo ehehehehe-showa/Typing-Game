@@ -1206,12 +1206,14 @@ input[type="checkbox"]:focus-visible {
     cursor: not-allowed;
 }
 
-/* ゲーム画面右上に浮かせる、マルチプレイ中の簡易リーダーボード
-   (シングルプレイ中は要素はあるが空+非表示にしておく) */
+/* ゲーム画面右側に浮かせる、マルチプレイ中の簡易リーダーボード
+   (シングルプレイ中は要素はあるが空+非表示にしておく)
+   ★以前はtop:20pxで#status-bar(特に右端の[ESC] EXIT表示)と重なって
+   見にくくなっていたバグを修正: ステータスバーの下に十分な余白を空けて配置する。 */
 .mp-live-leaderboard {
     display: none;
     position: absolute;
-    top: 20px;
+    top: 110px;
     right: 20px;
     width: 180px;
     background: var(--panel-bg);
@@ -1283,5 +1285,32 @@ body.mp-active .mp-live-leaderboard {
     text-align: center;
     grid-column: 1 / -1;
     color: var(--text-muted);
+}
+
+/* ★どの画面にいても常にルームの状況を把握できるようにする常設バッジ。
+   #app-shellの外(＝layout.jsのスケーリングの影響を受けない、常に画面左上固定)
+   に置き、位置がウィンドウサイズに関わらず一定になるようにしている。 */
+.mp-room-badge {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--panel-bg);
+    border: 1px solid var(--accent-color);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 0.85rem;
+    font-weight: bold;
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+.mp-room-badge-sep {
+    color: var(--text-muted);
+}
+#mp-room-badge-code {
+    letter-spacing: 2px;
+    color: var(--accent-color);
 }
 

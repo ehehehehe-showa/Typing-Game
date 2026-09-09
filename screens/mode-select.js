@@ -1,12 +1,18 @@
 /* ==========================================
    screens/mode-select.js — 「シングル/マルチ」選択、マルチプレイの
-   ホスト/参加フォーム、待機画面、ランキング画面の制御。
+   ホスト/参加フォーム、ルーム画面、ランキング画面の制御。
    実際のPeerJS通信はmultiplayer.js、ゲーム本編への合流はgame.jsの
    startMultiplayerRound()を呼ぶだけにしている。
-========================================== */
+
+   ★ホストのフローは「ルームを先に作る」形にしている:
+   名前入力 → (この場でルーム作成・コード発行) → ルーム画面(コード/参加者一覧が
+   常時見える) → ここから問題セット選択(シングルと同じUI)へ進んでSTART
+   → 同じルームのままラウンド開始。「続ける」も同様に、ルームを作り直さず
+   問題選択に戻るだけ。 */
 
 function openModeSelect() {
     mpTeardown();
+    mpRefreshRoomBadge();
     updateMultiplayerAvailability();
     openScreen('mode-select-screen');
 }
@@ -32,11 +38,14 @@ function openJoinForm() {
 }
 
 function backFromPlaySelect() {
-    if (mpMode === 'host') { openScreen('mp-host-name-screen'); }
+    // ★ルームが既に開いている(ホストとして問題を選んでいる/続けるを押した)間は
+    // 「戻る」でルームを畳んでしまわないよう、ルーム画面に戻すだけにする
+    if (mpMode === 'host' && mpRoomActive) { openScreen('mp-room-screen'); }
+    else if (mpMode === 'host') { openScreen('mp-host-name-screen'); }
     else { backToMain(); }
 }
 
-// ホスト: 名前を確定し、そのあとはシングルプレイと同じ画面(問題選択→設定)を使い回す
+// 名前を確定したら、その場でルームを作成する(コードはmpHostのコールバックで確定)
 function submitHostName() {
     const name = document.getElementById('mp-host-name-input').value.trim();
     const errEl = document.getElementById('mp-host-name-error');
@@ -44,6 +53,31 @@ function submitHostName() {
     errEl.classList.add('hidden');
 
     mpMyName = name; mpMode = 'host'; mpIsMultiplayer = true;
+    createRoomAsHost();
+}
+
+function createRoomAsHost() {
+    document.getElementById('mp-room-code-text').innerText = '--------';
+    document.getElementById('mp-host-room-status').innerText = t('mp_creating_room');
+    renderMpParticipantList([]);
+    openScreen('mp-room-screen');
+
+    mpSetMessageHandler(handleMpMessage);
+    mpHost(mpMyName, (code) => {
+        document.getElementById('mp-host-room-status').innerText = t('mp_room_ready');
+        document.getElementById('mp-room-code-text').innerText = code;
+        mpRefreshRoomBadge();
+    }, () => {
+        renderMpParticipantList(mpHostConns);
+        mpRefreshRoomBadge();
+    }, (err) => {
+        document.getElementById('mp-host-room-status').innerText = t('mp_connection_failed');
+        console.error('[multiplayer] host error:', err);
+    });
+}
+
+// ルーム画面から問題セット選択へ(シングルプレイと同じUIを使い回す)
+function mpGoToQuestionSelect() {
     openScreen('play-select-screen'); renderQuestionSets(); initTagFilters();
 }
 
@@ -57,70 +91,24 @@ function submitJoinForm() {
     errEl.classList.add('hidden');
 
     mpMode = 'join'; mpIsMultiplayer = true;
-    document.getElementById('mp-waiting-title').innerText = t('mp_connecting');
-    document.getElementById('mp-waiting-code-box').classList.add('hidden');
-    document.getElementById('mp-waiting-participants').innerHTML = '';
-    document.getElementById('mp-waiting-status').innerText = t('mp_connecting_status');
-    openScreen('mp-waiting-screen');
+    document.getElementById('mp-join-room-status').innerText = t('mp_connecting_status');
+    document.getElementById('mp-join-participants').innerHTML = '';
+    openScreen('mp-join-waiting-screen');
 
     mpSetMessageHandler(handleMpMessage);
     mpJoin(code, name, () => {
-        document.getElementById('mp-waiting-title').innerText = t('mp_waiting_host_round');
-        document.getElementById('mp-waiting-status').innerText = t('mp_connected_waiting');
+        document.getElementById('mp-join-room-status').innerText = t('mp_connected_waiting');
+        mpRefreshRoomBadge();
     }, (reason) => {
         const msg = reason === 'duplicate_name' ? t('mp_name_taken') : (reason === 'room_full' ? t('mp_room_full') : t('mp_connection_failed'));
-        document.getElementById('mp-waiting-status').innerText = msg;
+        document.getElementById('mp-join-room-status').innerText = msg;
     }, (err) => {
-        document.getElementById('mp-waiting-status').innerText = t('mp_connection_failed');
+        // ★接続失敗(タイムアウト/相手不在/経路無し等)。以前はこれを「ホスト切断」と
+        // 混同し、参加を試みただけで試合終了画面に飛んでしまうバグがあった。
+        // ここでは純粋な「接続できなかった」エラーとして留め、画面遷移はしない。
+        document.getElementById('mp-join-room-status').innerText = t('mp_connection_failed');
         console.error('[multiplayer] join error:', err);
     });
-}
-
-// ホスト: play-setupのSTARTボタンから呼ばれる。ここでコードを生成して待機画面へ。
-function startHostingFlow() {
-    const catId = selectedQSetId || questionSets[0].id;
-    const set = questionSets.find(s => s.id === catId) || questionSets[0];
-
-    let mode, target;
-    if (set.forceSettings) { mode = set.forceSettings.mode; target = set.forceSettings.target; }
-    else {
-        mode = document.getElementById('play-mode').value;
-        target = Math.min(9999, Math.max(1, parseInt(document.getElementById('play-value').value) || 60));
-    }
-    const isCjk = set.is_cjk !== false;
-    const allowLateJoin = document.getElementById('mp-allow-late-join').checked;
-
-    // 出題順をこの場で1回だけ確定し、参加者にそのまま送る(全員が全く同じ順番の問題で対戦する)
-    const sharedQuestions = [...set.questions];
-    shuffleArray(sharedQuestions);
-
-    mpPendingRound = { isCjk, mode, target, questions: sharedQuestions, allowLateJoin };
-
-    document.getElementById('mp-waiting-title').innerText = t('mp_hosting');
-    document.getElementById('mp-waiting-code-box').classList.remove('hidden');
-    document.getElementById('mp-room-code-text').innerText = '--------';
-    document.getElementById('mp-waiting-status').innerText = t('mp_waiting_opponent');
-    document.getElementById('mp-start-round-btn').classList.remove('hidden');
-    renderMpParticipantList([]);
-    openScreen('mp-waiting-screen');
-
-    mpSetMessageHandler(handleMpMessage);
-    mpHost(mpMyName, (code) => {
-        document.getElementById('mp-room-code-text').innerText = code;
-    }, () => {
-        renderMpParticipantList(mpHostConns);
-    }, (err) => {
-        document.getElementById('mp-waiting-status').innerText = t('mp_connection_failed');
-        console.error('[multiplayer] host error:', err);
-    });
-}
-
-let mpPendingRound = null;
-
-function mpHostStartRoundNow() {
-    if (!mpPendingRound || mpHostConns.length === 0) return;
-    mpHostStartRound(mpPendingRound.isCjk, mpPendingRound.mode, mpPendingRound.target, mpPendingRound.questions, mpPendingRound.allowLateJoin);
-    startMultiplayerRound(mpPendingRound.isCjk, mpPendingRound.mode, mpPendingRound.target, mpPendingRound.questions);
 }
 
 function mpCopyRoomCode() {
@@ -137,25 +125,63 @@ function mpCopyRoomCode() {
 
 function renderMpParticipantList(list, hostNameOverride) {
     const showKick = mpMode === 'host';
-    const el = document.getElementById('mp-waiting-participants');
-    const countEl = document.getElementById('mp-participant-count');
-    if (countEl) countEl.innerText = `${list.length + 1}`; // ホスト自身を含めた人数
-    const startBtn = document.getElementById('mp-start-round-btn');
-    if (startBtn) startBtn.disabled = list.length === 0;
-    if (!el) return;
+    const el = document.getElementById(mpMode === 'host' ? 'mp-host-participants' : 'mp-join-participants');
     const hostLabel = hostNameOverride || mpMyName;
-    let html = `<div class="mp-participant-row mp-participant-host"><span>${hostLabel}</span><span class="mp-role-tag">${t('mp_host_tag')}</span></div>`;
-    list.forEach(p => {
-        const isMe = p.id === mpMyId;
-        html += `<div class="mp-participant-row"><span>${p.name}${isMe ? ' (' + t('mp_you') + ')' : ''}</span>${showKick ? `<button class="mp-kick-btn" onclick="mpHostKick('${p.id}')">${t('mp_kick')}</button>` : ''}</div>`;
-    });
-    el.innerHTML = html;
+    if (el) {
+        let html = `<div class="mp-participant-row mp-participant-host"><span>${hostLabel}</span><span class="mp-role-tag">${t('mp_host_tag')}</span></div>`;
+        list.forEach(p => {
+            const isMe = p.id === mpMyId;
+            html += `<div class="mp-participant-row"><span>${p.name}${isMe ? ' (' + t('mp_you') + ')' : ''}</span>${showKick ? `<button class="mp-kick-btn" onclick="mpHostKick('${p.id}')">${t('mp_kick')}</button>` : ''}</div>`;
+        });
+        el.innerHTML = html;
+    }
+    mpUpdateParticipantCountDisplays(list.length + 1);
+}
+
+// ★「常に人数と参加者を把握できる」ように、人数表示は複数箇所(ルーム画面の見出し、
+// 常設バッジ)へまとめて反映する。
+function mpUpdateParticipantCountDisplays(count) {
+    document.querySelectorAll('.mp-participant-count').forEach(el => { el.innerText = `${count}`; });
+    mpRefreshRoomBadge();
+}
+
+// 画面をまたいで常に見える、ルームのコードと人数を示す固定バッジ。
+function mpRefreshRoomBadge() {
+    const badge = document.getElementById('mp-room-badge');
+    if (!badge) return;
+    if (!mpIsMultiplayer || (!mpRoomActive && mpMode !== 'join')) { badge.classList.add('hidden'); return; }
+    badge.classList.remove('hidden');
+    document.getElementById('mp-room-badge-code').innerText = mpRoomCode ? mpRoomCode.toUpperCase() : '----';
+    document.getElementById('mp-room-badge-count').innerText = t('mp_badge_count').replace('{n}', mpGetParticipantCount());
 }
 
 // play-setup画面のSTARTボタンから呼ばれる共通の入口。
 function handleSetupStart() {
-    if (mpMode === 'host') startHostingFlow();
+    if (mpMode === 'host') mpStartRoundFromSetup();
     else startCountdown();
+}
+
+// ホスト: 既に開いている「同じルーム」で新しいラウンドを開始する
+// (ルームの作り直しは行わない。初回起動でも「続ける」でも同じ経路)。
+function mpStartRoundFromSetup() {
+    const catId = selectedQSetId || questionSets[0].id;
+    const set = questionSets.find(s => s.id === catId) || questionSets[0];
+
+    let mode, target;
+    if (set.forceSettings) { mode = set.forceSettings.mode; target = set.forceSettings.target; }
+    else {
+        mode = document.getElementById('play-mode').value;
+        target = Math.min(9999, Math.max(1, parseInt(document.getElementById('play-value').value) || 60));
+    }
+    const isCjk = set.is_cjk !== false;
+    const allowLateJoin = document.getElementById('mp-allow-late-join').checked;
+
+    // 出題順をこの場で1回だけ確定し、参加者にそのまま送る(全員が全く同じ順番の問題で対戦する)
+    const sharedQuestions = [...set.questions];
+    shuffleArray(sharedQuestions);
+
+    mpHostStartRound(isCjk, mode, target, sharedQuestions, allowLateJoin);
+    startMultiplayerRound(isCjk, mode, target, sharedQuestions);
 }
 
 // 全クライアント共通のメッセージ処理(ホスト・参加者どちらの立場でも呼ばれる)
@@ -170,11 +196,13 @@ function handleMpMessage(data) {
         if (typeof isPlaying !== 'undefined' && isPlaying) { mpAbortCurrentRoundSilently(); }
         startMultiplayerRound(data.isCjk, data.mode, data.targetValue, data.questions);
     } else if (data.type === 'leaderboard') {
+        mpUpdateParticipantCountDisplays(data.entries.length);
         renderMpRankingIfVisible();
     } else if (data.type === 'round_over') {
         mpEnterRankingScreen(data.reason);
     } else if (data.type === 'kicked') {
         mpTeardown();
+        mpRefreshRoomBadge();
         openScreen('mode-select-screen');
         alert(t('mp_you_were_kicked'));
     } else if (data.type === 'host_disconnected') {
@@ -221,15 +249,16 @@ function mpRankRowHtml(e) {
     return `<div class="mp-rank-row${isMe ? ' mp-rank-me' : ''}"><span class="mp-rank-num">#${e.rank}</span><span class="mp-rank-name">${e.name}</span><span class="mp-rank-score">${e.score.toLocaleString()}</span></div>`;
 }
 
-// ホストが「続ける」を押した時: 同じメンバーのまま、最初のホスト時と同じ手順
-// (問題セット選択画面)へ戻る。接続はそのまま保持される。
+// ホストが「続ける」を押した時: 同じルームのまま(参加者もコードもそのまま)、
+// 最初のホスト時と同じ手順(問題セット選択画面)を踏むだけ。
 function mpContinueRound() {
     if (mpMode !== 'host') return;
-    openScreen('play-select-screen'); renderQuestionSets(); initTagFilters();
+    mpGoToQuestionSelect();
 }
 
 function cancelMultiplayerSetup() {
     mpTeardown();
+    mpRefreshRoomBadge();
     backToMain();
 }
 

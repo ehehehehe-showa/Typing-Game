@@ -1,13 +1,22 @@
 /* ==========================================
    multiplayer.js — PeerJSを使ったP2Pマルチプレイヤー(複数人対応)
+
+   用語: ホストが作成し、参加者がその中に入っている塊を「ルーム」と呼ぶ。
+   ルームは1つのPeerJS接続(ホスト)を中心に、参加者が出入りしながら
+   何ラウンドでも続けられる(「続ける」で同じルームのまま次のラウンドへ)。
+
    星型(ホスト中継)トポロジー: ホストは全参加者と直接つながり、参加者同士は
    繋がらずホストが中継する。フルメッシュより接続数が少なく、ホストが
    ランキングを一元管理できるため、複数人対応の実装として単純で頑丈。
 
    ※WebRTC自体は同一LANである必要はなく、インターネット越しに直接つながる。
    ただし接続を確立するまでの仲介(シグナリング)にPeerJSのクラウドサーバーが
-   必要で、この仲介サーバーとの通信だけはインターネット接続が要る
-   (file://での起動自体は引き続き可能)。
+   必要で、この仲介サーバーとの通信だけはインターネット接続が要る。
+   ※NAT越えのためGoogle/Twilioなど複数の公開STUNサーバーを設定しているが、
+   これはあくまで「双方の公開IP/ポートを教え合う」ためのものであり、
+   TURN(中継)サーバーは含んでいない。回線によっては(特に厳しめの
+   企業・大学ネットワークや一部のモバイル回線)STUNだけでは直接経路が
+   見つからず接続できないことがある。その場合はTURNサーバーの追加が必要。
 
    通信プロトコル(すべてJSONで送る):
    参加者→ホスト:
@@ -27,6 +36,9 @@
 
 let mpMode = null;           // null | 'host' | 'join'
 let mpIsMultiplayer = false; // 現在進行中/直前のプレイがマルチプレイかどうか
+let mpRoomActive = false;    // ルーム(ホストのPeerJS接続)自体が今開いているかどうか。
+                              // 「続ける」で同じルームのまま複数ラウンドをこなすため、
+                              // ラウンドの開始/終了(mpIsRoundActive寄りの概念)とは別に管理する。
 let mpPeer = null;
 let mpMyId = '';             // 自分の参加者ID(ホストは'host'固定、参加者はPeerJSのID)
 let mpMyName = '';
@@ -36,7 +48,9 @@ let mpLastProgressSentAt = 0;
 let mpRoundNo = 0;
 let mpAllowLateJoin = false;
 let mpLastLeaderboard = [];  // 直近に受け取った(またはホストなら計算した)順位表
-let mpIsRoundActive = false; // [ホスト専用] 現在ホストしているラウンドが進行中かどうか(途中参加の可否判定に使う)
+let mpLastParticipantCount = 0; // ホスト含む現在の人数(roster/leaderboardどちらでも更新)
+let mpIsRoundActive = false; // [ホスト専用] 現在ラウンドが進行中かどうか(途中参加の可否判定に使う)
+let mpJoinConfirmed = false; // [参加者専用] hello_ackで正式にルームへ受理されたかどうか
 
 // ホスト専用の状態
 let mpHostConns = [];        // [{ id, name, conn, lastSeen, score, finished }]
@@ -46,6 +60,17 @@ const MP_PEER_PREFIX = 'tmpro-';
 const MP_MAX_PARTICIPANTS = 8; // ホスト含む上限(P2Pなので程々に)
 const MP_HEARTBEAT_MS = 5000;
 const MP_HEARTBEAT_TIMEOUT_MS = 15000;
+
+// NAT越えの成功率を上げるため、複数の公開STUNサーバーを設定する
+// (前回はPeerJSの初期設定任せだったが、同一Wi-Fi内でも接続できないケースがあったため)
+const MP_ICE_CONFIG = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+    ]
+};
 
 function mpGenerateRoomCode() {
     let code = '';
@@ -62,13 +87,21 @@ function mpNormalizeCode(code) {
 
 function mpSetMessageHandler(fn) { mpMessageHandler = fn; }
 
+// 現在の人数(ホスト含む)を常に取得できるようにするヘルパー。
+// roster(待機中)・leaderboard(ラウンド中)どちらの更新でもmpLastParticipantCountを
+// 最新に保っているので、どのタイミングで見ても正確な人数が取れる。
+function mpGetParticipantCount() {
+    if (mpMode === 'host') return mpHostConns.length + 1;
+    return mpLastParticipantCount;
+}
+
 function mpTeardown() {
     mpHostConns.forEach(p => { try { p.conn.close(); } catch(e) {} });
     mpHostConns = [];
     if (mpPeer) { try { mpPeer.destroy(); } catch(e) {} mpPeer = null; }
-    mpMode = null; mpIsMultiplayer = false; mpIsRoundActive = false;
-    mpMyId = ''; mpMyName = ''; mpRoomCode = '';
-    mpRoundNo = 0; mpAllowLateJoin = false; mpLastLeaderboard = [];
+    mpMode = null; mpIsMultiplayer = false; mpIsRoundActive = false; mpRoomActive = false;
+    mpMyId = ''; mpMyName = ''; mpRoomCode = ''; mpJoinConfirmed = false;
+    mpRoundNo = 0; mpAllowLateJoin = false; mpLastLeaderboard = []; mpLastParticipantCount = 0;
     document.body.classList.remove('mp-active');
 }
 
@@ -85,7 +118,7 @@ function mpComputeRanking(entries) {
 
 /* ==================== ホスト側 ==================== */
 
-// ホストとしてセッションを開始する。PeerJSのID衝突(unavailable-id)時は
+// ルームを作成する(ホストになる)。PeerJSのID衝突(unavailable-id)時は
 // コードを振り直して自動リトライする。
 function mpHost(name, onCodeReady, onRosterChange, onError, attempt) {
     attempt = attempt || 0;
@@ -95,11 +128,11 @@ function mpHost(name, onCodeReady, onRosterChange, onError, attempt) {
 
     let peer;
     try {
-        peer = new Peer(MP_PEER_PREFIX + mpNormalizeCode(code));
+        peer = new Peer(MP_PEER_PREFIX + mpNormalizeCode(code), { config: MP_ICE_CONFIG });
     } catch(e) { if (onError) onError(e); return; }
 
     peer.on('open', () => {
-        mpPeer = peer;
+        mpPeer = peer; mpRoomActive = true;
         if (onCodeReady) onCodeReady(code);
         mpStartHeartbeat(onRosterChange);
     });
@@ -166,6 +199,10 @@ function mpHostRemoveParticipant(id, onRosterChange, reason) {
     mpHostBroadcastRoster();
     if (onRosterChange) onRosterChange(reason);
 
+    // ★途中で抜けた参加者がランキングに残り続けないよう、退出のたびに
+    // 順位表を再計算して即座に配り直す(スコア更新が無いと古いまま残っていたバグ)
+    if (mpIsRoundActive) mpHostBroadcastLeaderboard();
+
     // ★ホスト以外の全員が退出した場合は、その時点でラウンドを終了扱いにする
     if (mpIsRoundActive && mpHostConns.length === 0) {
         mpHostEndRound('all_left');
@@ -188,6 +225,8 @@ function mpHostBroadcastRoster() {
 }
 
 function mpHostBroadcastLeaderboard() {
+    // ★退出済みの参加者はmpHostConnsから既に消えているため、ここで組み立て直す
+    // 限りランキングに残り続けることはない
     const entries = [{ id: 'host', name: mpMyName, score: (typeof stats !== 'undefined' && stats) ? stats.score : 0 }]
         .concat(mpHostConns.map(p => ({ id: p.id, name: p.name, score: p.score })));
     mpLastLeaderboard = mpComputeRanking(entries);
@@ -198,7 +237,8 @@ function mpHostBroadcastLeaderboard() {
 
 let mpCurrentRoundData = null;
 
-// ホストが新しいラウンドを開始する。今接続している全員(遅れて参加した人含む)に送る。
+// ホストが(同じルームのまま)新しいラウンドを開始する。
+// 今接続している全員(遅れて参加した人含む)に送る。
 function mpHostStartRound(isCjk, mode, targetValue, questions, allowLateJoin) {
     mpRoundNo++;
     mpAllowLateJoin = !!allowLateJoin;
@@ -220,18 +260,33 @@ function mpHostEndRound(reason) {
 /* ==================== 参加者側 ==================== */
 
 function mpJoin(code, name, onConnected, onRejected, onError) {
-    mpMode = 'join'; mpMyName = name; mpRoomCode = code;
+    mpMode = 'join'; mpMyName = name; mpRoomCode = code; mpJoinConfirmed = false;
     let peer;
-    try { peer = new Peer(); } catch(e) { if (onError) onError(e); return; }
+    try { peer = new Peer({ config: MP_ICE_CONFIG }); } catch(e) { if (onError) onError(e); return; }
 
     peer.on('open', (id) => {
         mpPeer = peer; mpMyId = id;
         const conn = peer.connect(MP_PEER_PREFIX + mpNormalizeCode(code), { reliable: true });
-        conn.on('open', () => { conn.send({ type: 'hello', name: mpMyName }); });
-        conn.on('data', (data) => mpJoinHandleData(conn, data, onConnected, onRejected));
-        conn.on('close', () => { if (mpMessageHandler) mpMessageHandler({ type: 'host_disconnected' }, 'host'); });
-        conn.on('error', (err) => { if (onError) onError(err); });
         mpPeer._mpHostConn = conn;
+
+        // ★接続確立自体がタイムアウトした場合(相手が存在しない/経路が無い等)、
+        // PeerJSのconn.on('open')もconn.on('error')も発火しないまま無反応になる
+        // ことがあるため、一定時間で見切りをつけて明示的にエラーとして扱う。
+        const connectTimeout = setTimeout(() => {
+            if (!mpJoinConfirmed) { if (onError) onError(new Error('connection-timeout')); }
+        }, 15000);
+
+        conn.on('open', () => { conn.send({ type: 'hello', name: mpMyName }); });
+        conn.on('data', (data) => { clearTimeout(connectTimeout); mpJoinHandleData(conn, data, onConnected, onRejected); });
+        conn.on('close', () => {
+            // ★hello_ackで正式に受理される前の切断は「接続失敗」であって
+            // 「ルームが終了した」わけではない。ここを区別しないと、参加を
+            // 試みただけで(接続が一瞬で切れた場合に)いきなり試合終了扱いに
+            // なってしまうバグがあった。
+            if (mpJoinConfirmed) { if (mpMessageHandler) mpMessageHandler({ type: 'host_disconnected' }, 'host'); }
+            else { if (onError) onError(new Error('connection-closed-before-join')); }
+        });
+        conn.on('error', (err) => { clearTimeout(connectTimeout); if (onError) onError(err); });
     });
     peer.on('error', (err) => { if (onError) onError(err); });
 }
@@ -239,11 +294,15 @@ function mpJoin(code, name, onConnected, onRejected, onError) {
 function mpJoinHandleData(conn, data, onConnected, onRejected) {
     if (data.type === 'hello_ack') {
         if (!data.accepted) { if (onRejected) onRejected(data.reason); try { conn.close(); } catch(e) {} return; }
+        mpJoinConfirmed = true;
         if (onConnected) onConnected();
     } else if (data.type === 'ping') {
         try { conn.send({ type: 'pong' }); } catch(e) {}
+    } else if (data.type === 'roster') {
+        mpLastParticipantCount = data.participants.length + 1; // ホスト込み
     } else if (data.type === 'leaderboard') {
         mpLastLeaderboard = data.entries;
+        mpLastParticipantCount = data.entries.length;
         mpUpdateLeaderboardUI();
     }
     if (mpMessageHandler) mpMessageHandler(data, 'host');
@@ -311,4 +370,7 @@ function mpUpdateLeaderboardUI() {
         html += `<div class="mp-lb-row${isMe ? ' mp-lb-me' : ''}"><span class="mp-lb-rank">#${e.rank}</span><span class="mp-lb-name">${e.name}</span><span class="mp-lb-score">${e.score.toLocaleString()}</span></div>`;
     });
     el.innerHTML = html;
+
+    const countEl = document.getElementById('mp-hud-count');
+    if (countEl) countEl.innerText = `${mpLastLeaderboard.length}`;
 }

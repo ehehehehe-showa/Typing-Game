@@ -41,7 +41,10 @@ const translations = {
         mp_waiting_host_round: "接続完了", mp_host_left: "ホストが退出したため対戦を終了しました",
         mp_all_left: "参加者が全員退出したため対戦を終了しました",
         mp_you_were_kicked: "ホストにより退出させられました",
-        mp_continue: "続ける", mp_ranking_title: "対戦結果", mp_finished_count: "完了"
+        mp_continue: "続ける", mp_ranking_title: "対戦結果", mp_finished_count: "完了",
+        mp_room_title: "ルーム", mp_select_questions: "問題を選択してゲーム開始",
+        mp_creating_room: "ルームを作成しています...", mp_room_ready: "ルームを作成しました",
+        mp_badge_count: "{n}人"
     },
     en: {
         menu_play: "PLAY", menu_status: "STATUS", menu_settings: "SETTINGS",
@@ -79,7 +82,10 @@ const translations = {
         mp_waiting_host_round: "Connected", mp_host_left: "Match ended: host disconnected",
         mp_all_left: "Match ended: all participants left",
         mp_you_were_kicked: "You were removed by the host",
-        mp_continue: "Continue", mp_ranking_title: "Results", mp_finished_count: "finished"
+        mp_continue: "Continue", mp_ranking_title: "Results", mp_finished_count: "finished",
+        mp_room_title: "ROOM", mp_select_questions: "Select Questions & Start",
+        mp_creating_room: "Creating room...", mp_room_ready: "Room created",
+        mp_badge_count: "{n} players"
     }
 };
 let currentLang = "ja";

@@ -29,6 +29,15 @@
     <canvas id="bg-canvas"></canvas>
     <div id="damage-overlay"></div>
 
+    <!-- ★どの画面にいても、マルチプレイのルームが開いている間は常にコードと
+         人数を把握できるようにする常設バッジ。shellの外(ビューポート固定)に置く。 -->
+    <div id="mp-room-badge" class="mp-room-badge hidden">
+        <span class="mp-room-badge-icon">🔑</span>
+        <span id="mp-room-badge-code"></span>
+        <span class="mp-room-badge-sep">・</span>
+        <span id="mp-room-badge-count"></span>
+    </div>
+
     <!-- ★app-shell: 常に同じ論理サイズ(1100x760)の「窓」として扱い、
          実際のブラウザウィンドウサイズにはlayout.jsがtransform: scale()で
          合わせる。画面ごとにサイズが変わったりレスポンシブ折り返しが起きたり
@@ -103,23 +112,33 @@
         </div>
     </div>
 
-    <div id="mp-waiting-screen" class="screen sub-screen">
+    <div id="mp-room-screen" class="screen sub-screen">
         <div class="panel cyber-panel menu-panel">
-            <h2 id="mp-waiting-title">Hosting</h2>
-            <div id="mp-waiting-code-box" class="mp-code-box hidden">
+            <h2 data-i18n="mp_room_title">ROOM</h2>
+            <div id="mp-room-code-box" class="mp-code-box">
                 <p data-i18n="mp_room_code_label">Share this code with your opponent</p>
                 <div class="mp-code-row">
                     <div id="mp-room-code-text" class="mp-room-code neon-text">--------</div>
                     <button id="mp-copy-code-btn" onclick="mpCopyRoomCode()" class="cyber-btn-sub mp-copy-btn" data-i18n="mp_copy">Copy</button>
                 </div>
             </div>
-            <p id="mp-waiting-status" class="mp-status"></p>
-            <h3 class="section-title mp-participants-title"><span data-i18n="mp_participants">Participants</span> (<span id="mp-participant-count">1</span>/8)</h3>
-            <div id="mp-waiting-participants" class="mp-participant-list"></div>
+            <p id="mp-host-room-status" class="mp-status"></p>
+            <h3 class="section-title mp-participants-title"><span data-i18n="mp_participants">Participants</span> (<span class="mp-participant-count">1</span>/8)</h3>
+            <div id="mp-host-participants" class="mp-participant-list"></div>
             <div class="result-actions">
-                <button id="mp-start-round-btn" onclick="mpHostStartRoundNow()" class="cyber-btn-primary hidden" data-i18n="mp_start_round">Start Game</button>
+                <button onclick="mpGoToQuestionSelect()" class="cyber-btn-primary" data-i18n="mp_select_questions">Select Questions</button>
                 <button onclick="cancelMultiplayerSetup()" class="cyber-btn-sub" data-i18n="mp_cancel">Cancel</button>
             </div>
+        </div>
+    </div>
+
+    <div id="mp-join-waiting-screen" class="screen sub-screen">
+        <div class="panel cyber-panel menu-panel">
+            <h2 data-i18n="mp_room_title">ROOM</h2>
+            <p id="mp-join-room-status" class="mp-status"></p>
+            <h3 class="section-title mp-participants-title"><span data-i18n="mp_participants">Participants</span> (<span class="mp-participant-count">1</span>/8)</h3>
+            <div id="mp-join-participants" class="mp-participant-list"></div>
+            <button onclick="cancelMultiplayerSetup()" class="cyber-btn-sub" data-i18n="mp_cancel">Cancel</button>
         </div>
     </div>
 

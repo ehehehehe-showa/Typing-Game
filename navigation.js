@@ -25,6 +25,7 @@ function backToMain() {
     // ★マルチプレイのP2P接続は「メインメニューに戻る」で必ず切断する。
     // 単純化のため、対戦を続けたい場合は毎回ホスト/参加をやり直す仕様にしている。
     if (typeof mpTeardown === 'function') mpTeardown();
+    if (typeof mpRefreshRoomBadge === 'function') mpRefreshRoomBadge();
     openScreen('main-menu-screen');
 }
 function toggleFullscreen() { !document.fullscreenElement ? document.documentElement.requestFullscreen() : document.exitFullscreen?.(); }
