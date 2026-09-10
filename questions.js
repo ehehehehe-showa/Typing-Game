@@ -66,7 +66,8 @@ const QUESTION_SET_FILES = [
     'words-ja-1.js',
     'long-ja-1.js',
     'words-en-1.js',
-    'score-ja-1.js'
+    'score-ja-1.js',
+    'sen.js'
 ];
 
 QUESTION_SET_FILES.forEach(filename => {
