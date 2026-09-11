@@ -1,0 +1,9 @@
+{
+    "_comment": "新しい問題セットを追加する手順: (1) questions/に<id>.jsonを1つ作る (2) filesにファイル名を1行足す。index.html等の編集は不要。",
+    "files": [
+        "words-ja-1.json",
+        "long-ja-1.json",
+        "words-en-1.json",
+        "score-ja-1.json"
+    ]
+}

@@ -17,6 +17,15 @@ let sessionStartTime = 0; // ★タイマーの基準となる実時刻(performa
 let timerRafId = null;
 
 function startCountdown() {
+    // ★questionSetsが1件も読み込めていない場合(オフライン/読み込み失敗等)に
+    // questionSets[0]へアクセスして例外で落ちないよう、まずここで安全に止める。
+    // 本来はこの画面に来る前にPLAYボタン側で弾いているはずだが、念のための多重防御。
+    if (!Array.isArray(questionSets) || questionSets.length === 0) {
+        if (typeof showQuestionsUnavailableNotice === 'function') showQuestionsUnavailableNotice();
+        backToMain();
+        return;
+    }
+
     activeCategoryId = selectedQSetId || questionSets[0].id;
     const set = questionSets.find(s => s.id === activeCategoryId) || questionSets[0];
     activeSet = set;
@@ -86,6 +95,7 @@ function runCountdown() {
 function startGame() {
     timeElapsed = 0; timeLeft = currentMode === 'time' ? targetValue : 0;
     stats = { correct: 0, miss: 0, total: 0, questionsCompleted: 0, score: 0, combo: 0 };
+    if (typeof acResetSession === 'function') acResetSession();
     isPlaying = true; lastCharWasShortN = false; openScreen('game-screen'); nextQuestion();
 
     DOM.score.innerText = stats.score.toLocaleString();
@@ -180,10 +190,12 @@ function endGame() {
     // ★競技設定(forceSettings)のセットをEscape等で途中終了した場合は、
     // 未完走の記録が正式なベスト/履歴に混ざらないよう保存自体をスキップする。
     // (弱い記録として履歴を汚したくない、という意図)
+    // ・forceSettingsが無いカスタム設定のセットはsaveRecord内で保存対象外になる
+    //   (モード/目標値を自由に選べるため、記録同士を比較する前提が揃わないため)
     const isCompetitionAbort = sessionAborted && activeSet && activeSet.forceSettings;
     if (!isCompetitionAbort) {
         const d = new Date(); const record = { date: `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`, score: stats.score, wpm: vals.wpm, acc: vals.acc, fullStats: vals };
-        saveRecord(activeCategoryId, record);
+        saveRecord(activeCategoryId, record, activeSet);
     }
 }
 
@@ -191,9 +203,15 @@ function endGame() {
    ここがタイピング判定の本体。typing-engine.js(getBlockOptions)で候補を絞り込み、
    hud.js(addScore/subScore/flashKey/renderBlocksHTMLなど)へ結果を反映させる。 */
 function handleTypingKeydown(e) {
-    if (e.key === 'Escape' && isPlaying) { sessionAborted = true; endGame(); return; }
-    if (e.key === ' ' && !isPlaying && document.getElementById('main-menu-screen').classList.contains('active')) { e.preventDefault(); openModeSelect(); return; }
-    if (!isPlaying || e.key.length !== 1 || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (!isPlaying) {
+        if (e.key === ' ' && document.getElementById('main-menu-screen').classList.contains('active')) { e.preventDefault(); openModeSelect(); }
+        return;
+    }
+    if (e.key === 'Escape') { sessionAborted = true; endGame(); return; }
+    if (e.key.length !== 1 || e.ctrlKey || e.altKey || e.metaKey) return;
+    // ★アンチチート: dispatchEvent()等で合成された(実ユーザーの操作ではない)
+    // キー入力を弾く。isTrustedはブラウザ自身が保証する値なので比較的信頼できる。
+    if (!acCheckTrustedEvent(e)) return;
 
     // ★以前は常にtoLowerCase()していたため、cjk:false(英語などの直接入力)で
     // 大文字(例: "This"の T)を正しくShift入力しても小文字化されてしまい、

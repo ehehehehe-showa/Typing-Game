@@ -9,7 +9,9 @@ function updateStatusCategoryOptions() {
     if (!statCatSel) return;
     const currentVal = statCatSel.value;
     statCatSel.innerHTML = "";
-    questionSets.forEach((set, idx) => {
+    // ★履歴はforceSettings(競技ルール)のセットしか保存されないため、
+    // それ以外のセットを一覧に出しても常に空になるだけで意味が無い
+    questionSets.filter(set => set.forceSettings).forEach((set, idx) => {
         const valueId = set.id || String(idx);
         statCatSel.add(new Option(getI18nText(set.name), valueId));
     });

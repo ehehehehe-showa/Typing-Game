@@ -164,6 +164,10 @@ function handleSetupStart() {
 // ホスト: 既に開いている「同じルーム」で新しいラウンドを開始する
 // (ルームの作り直しは行わない。初回起動でも「続ける」でも同じ経路)。
 function mpStartRoundFromSetup() {
+    if (!Array.isArray(questionSets) || questionSets.length === 0) {
+        if (typeof showQuestionsUnavailableNotice === 'function') showQuestionsUnavailableNotice();
+        return;
+    }
     const catId = selectedQSetId || questionSets[0].id;
     const set = questionSets.find(s => s.id === catId) || questionSets[0];
 
@@ -205,6 +209,14 @@ function handleMpMessage(data) {
         mpRefreshRoomBadge();
         openScreen('mode-select-screen');
         alert(t('mp_you_were_kicked'));
+    } else if (data.type === 'removed') {
+        // ★タブが一時停止している間にハートビートが途切れ、ホスト側で
+        // タイムアウト退出させられていたケース。「キックもされず続けている
+        // 判定のまま固まる」不具合を避けるため、ここで能動的に片付ける。
+        mpTeardown();
+        mpRefreshRoomBadge();
+        openScreen('mode-select-screen');
+        alert(t('mp_you_were_removed'));
     } else if (data.type === 'host_disconnected') {
         mpEnterRankingScreen('host_left');
     }

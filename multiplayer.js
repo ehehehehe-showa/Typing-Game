@@ -59,7 +59,11 @@ const MP_ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const MP_PEER_PREFIX = 'tmpro-';
 const MP_MAX_PARTICIPANTS = 8; // ホスト含む上限(P2Pなので程々に)
 const MP_HEARTBEAT_MS = 5000;
-const MP_HEARTBEAT_TIMEOUT_MS = 15000;
+// ★モバイルブラウザ(特にiOS Safari)はバックグラウンドタブのJS実行を
+// 大きく間引く/一時停止することがあり、以前の15秒は「タブを見ていないだけ」の
+// 参加者まで誤ってタイムアウト扱いにしてしまっていた。実際の切断検知としては
+// 少し長めだが、猶予を優先して30秒に伸ばしている。
+const MP_HEARTBEAT_TIMEOUT_MS = 30000;
 
 // NAT越えの成功率を上げるため、複数の公開STUNサーバーを設定する
 // (前回はPeerJSの初期設定任せだったが、同一Wi-Fi内でも接続できないケースがあったため)
@@ -192,6 +196,20 @@ function mpHostHandleHello(conn, name, onRosterChange) {
     if (onRosterChange) onRosterChange();
 }
 
+function mpHostTimeoutParticipant(p, onRosterChange) {
+    // ★iPad等でタブがバックグラウンドになると、参加者側のJS実行自体が
+    // 一時停止され、ハートビート(ping)に応答できなくなることがある。
+    // この場合、接続そのものはまだ生きていることが多いため、切断する前に
+    // 「タイムアウトで退出させた」ことを伝えるメッセージを送っておく。
+    // 参加者のタブがスリープから復帰した際にこのメッセージ(WebRTCの
+    // データチャネル上でキューされて届くことが多い)を受け取れれば、
+    // 「キックもされず、続けている判定のまま良く分からない状態になる」
+    // という不具合を避けられる。
+    try { p.conn.send({ type: 'removed', reason: 'timeout' }); } catch(e) {}
+    try { p.conn.close(); } catch(e) {}
+    mpHostRemoveParticipant(p.id, onRosterChange, 'timeout');
+}
+
 function mpHostRemoveParticipant(id, onRosterChange, reason) {
     const idx = mpHostConns.findIndex(p => p.id === id);
     if (idx === -1) return;
@@ -304,6 +322,11 @@ function mpJoinHandleData(conn, data, onConnected, onRejected) {
         mpLastLeaderboard = data.entries;
         mpLastParticipantCount = data.entries.length;
         mpUpdateLeaderboardUI();
+    } else if (data.type === 'removed') {
+        // ★タブがバックグラウンドで一時停止していた間にハートビート未応答で
+        // タイムアウト退出させられていたケース。復帰後にこのメッセージを
+        // 受け取れれば、キックもされず良く分からない状態のまま固まるのを防げる。
+        mpJoinConfirmed = false;
     }
     if (mpMessageHandler) mpMessageHandler(data, 'host');
 }
@@ -327,7 +350,7 @@ function mpStartHeartbeat(onRosterChange) {
             const now = Date.now();
             mpHostConns.forEach(p => { try { p.conn.send({ type: 'ping' }); } catch(e) {} });
             const stale = mpHostConns.filter(p => now - p.lastSeen > MP_HEARTBEAT_TIMEOUT_MS);
-            stale.forEach(p => mpHostRemoveParticipant(p.id, onRosterChange, 'timeout'));
+            stale.forEach(p => mpHostTimeoutParticipant(p, onRosterChange));
         } else if (mpMode === 'join') {
             mpSendToHost({ type: 'ping' });
         }
@@ -374,3 +397,19 @@ function mpUpdateLeaderboardUI() {
     const countEl = document.getElementById('mp-hud-count');
     if (countEl) countEl.innerText = `${mpLastLeaderboard.length}`;
 }
+
+/* ==================== タブのバックグラウンド復帰時の再同期 ====================
+   iPad/iOS Safari等はバックグラウンドタブのJS実行を大きく間引く/一時停止する。
+   その間はping/pongが送れず、ホスト側からは無応答に見えて30秒後に
+   タイムアウト退出させられることがある。visibilitychangeはこの一時停止中でも
+   タブが表に戻った瞬間に確実に発火するため、これを使って即座に生存確認を
+   送り直し、ハートビートの次回発火を待たずに復帰できるようにする。 */
+try {
+    document.addEventListener('visibilitychange', () => {
+        try {
+            if (document.hidden || !mpIsMultiplayer) return;
+            if (mpMode === 'join') mpSendToHost({ type: 'ping' });
+            else if (mpMode === 'host') mpHostConns.forEach(p => { try { p.conn.send({ type: 'ping' }); } catch(e) {} });
+        } catch(e) { console.error('[multiplayer] visibilitychange処理中にエラー:', e); }
+    });
+} catch(e) { console.error('[multiplayer] visibilitychangeの登録に失敗しました:', e); }

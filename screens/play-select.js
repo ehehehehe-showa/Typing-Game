@@ -32,6 +32,15 @@ function initTagFilters() {
 
 function renderQuestionSets() {
     const container = document.getElementById('qset-list');
+    if (!container) return;
+
+    // ★questionSetsが1件も読み込めていない場合は、検索結果0件とは別の
+    // 「読み込めていない」専用メッセージを出す(原因が違うため案内も変える)
+    if (!Array.isArray(questionSets) || questionSets.length === 0) {
+        container.innerHTML = `<p class="qset-empty-message" data-i18n="q_load_failed_short">Failed to load question data.</p>`;
+        return;
+    }
+
     const searchInput = document.getElementById('search-input');
     const searchWord = searchInput ? searchInput.value.toLowerCase() : "";
     const requiredTags = Object.keys(activeTagFilters).filter(k => activeTagFilters[k]);
@@ -64,11 +73,12 @@ function renderQuestionSets() {
         `;
     });
 
-    if (html === "") html = `<p class="qset-empty-message">No sets found.</p>`;
+    if (html === "") html = `<p class="qset-empty-message" data-i18n="q_no_sets_found">No sets found.</p>`;
     container.innerHTML = html;
 }
 
 function selectQuestionSet(id) {
+    if (!Array.isArray(questionSets) || questionSets.length === 0) { if (typeof showQuestionsUnavailableNotice === 'function') showQuestionsUnavailableNotice(); return; }
     selectedQSetId = id;
 
     const set = questionSets.find(s => s.id === id) || questionSets[0];
@@ -87,6 +97,7 @@ function retryPlay() {
 }
 
 function updateFormUI() {
+    if (!Array.isArray(questionSets) || questionSets.length === 0) { if (typeof showQuestionsUnavailableNotice === 'function') showQuestionsUnavailableNotice(); return; }
     const set = questionSets.find(s => s.id === selectedQSetId) || questionSets[0];
     const customArea = document.getElementById('custom-settings-area');
     const forcedArea = document.getElementById('forced-settings-area');

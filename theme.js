@@ -65,6 +65,24 @@ function applyAppearance(styleId, colorMode) {
     document.body.classList.toggle('no-glow', style.glow === false);
     document.body.classList.remove('theme-dark', 'theme-light', 'theme-auto');
     document.body.classList.add(`theme-${resolvedMode}`);
+
+    // ★次回の初回ペイント前に(このJSが読み込まれるより前に)同じ配色を
+    // すぐ再現できるよう、実際に適用した値をそのままキャッシュしておく。
+    // index.htmlの<body>先頭の早期スクリプトがこれを読んで先に適用することで、
+    // 「スタイル/言語の設定が読み込まれる前に別の見た目が一瞬映り、
+    // あとから上書きされる」ちらつきを防ぐ。
+    try {
+        localStorage.setItem('typingLastPalette', JSON.stringify({ vars: paletteToVars(palette), noGlow: style.glow === false, mode: resolvedMode }));
+    } catch(e) { console.error('[theme] 配色キャッシュの保存に失敗しました:', e); }
+}
+
+function paletteToVars(palette) {
+    const vars = {};
+    Object.keys(palette).forEach(key => {
+        const cssVar = STYLE_CSS_VAR_MAP[key];
+        if (cssVar) vars[cssVar] = palette[key];
+    });
+    return vars;
 }
 
 // ★questions.jsと同じ考え方: 新しいスタイルを追加するときにindex.htmlへ

@@ -120,6 +120,9 @@ function addScore() {
 
     // マルチプレイ中は自分の進捗を相手へ間引いて送る(multiplayer.js側で頻度を制御)
     if (typeof mpMaybeSendProgress === 'function') mpMaybeSendProgress();
+
+    // アンチチート: 統計の整合性・入力間隔の異常を確認する
+    if (typeof acOnCorrectInput === 'function') acOnCorrectInput();
 }
 
 function subScore() {

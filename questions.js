@@ -1,31 +1,30 @@
 /* ==========================================
    questions.js — 問題データの読み込み・登録を担当するローダー。
-   ここには問題の中身は置かず、questions/ フォルダの各ファイルが
-   registerQuestionSet() を呼んで自分自身を登録する方式にしている。
+   GitHub Pages配信に移行しfetch()が使えるようになったため、
+   以前の<script>タグ動的生成方式からJSON+fetch方式に変更した。
 
    ねらい:
-   ・1問題セット=1ファイルにすることで、追加/一時停止/削除が
-     QUESTION_SET_FILES配列(このファイルの下の方にある)の1行を
-     足す/コメントアウトする/消すだけで完結する(index.html自体は
-     もう編集しなくてよい)
-   ・questions.js本体を軽く保ち、問題ファイルは動的に<script>タグを
-     生成して読み込むことで、アプリ本体の起動を問題データの量に
-     引っ張られて遅くしない
-   ・あるファイルの内容が壊れていても(構文エラー等)、他の<script>タグは
-     独立して実行されるため、その1セットだけが読み込まれないだけで済む
+   ・1問題セット=1ファイル(questions/<id>.json)にすることは変わらず、
+     questions/manifest.jsonのfiles配列に1行足すだけで追加できる
+     (index.html自体は編集不要)
+   ・1ファイルの取得/パース失敗が他のファイルの読み込みに影響しないよう、
+     Promise.allSettled()で個別に結果を扱う
+   ・「一問も読み込めなかった」場合(オフライン・manifestの構文ミス・
+     ネットワーク遮断など、あらゆる失敗パターン)を必ず検知し、
+     questionsReadyイベントで呼び出し側(script.js/mode-select.js)に
+     知らせてフォールバックUIを出せるようにする。ここが今回いちばん
+     大事なところ: 「失敗した」ことを黙って握りつぶさない。
 
-   問題セットのフォーマット:
+   問題セットのフォーマット(questions/<id>.json):
    {
-     id, name, description, tags,
+     id, version,            // versionを上げると、そのセットに紐づく
+                              // 履歴/ベスト記録がリセットされる(records.js参照)
+     name, description, tags,
      is_cjk: true | false,   // ふりがな(読み)を必要とする言語かどうか
      forceSettings: {...},   // (任意) 競技用などモードを固定したい場合
      questions:
-       is_cjk:true  → [{ text, kana }, ...]
-         text/kanaはどちらも「|」区切りで、読みのまとまり単位を1:1で対応させる。
-         例: "今日|は" / "きょう|は"  (「今日」を1文字ずつ分けると読みが不自然になるため
-         2文字をまとめて1つの読みグループにできる)
+       is_cjk:true  → [{ text, kana }, ...]  (text/kanaは同じ数の「|」区切り)
        is_cjk:false → ["word1", "word2", ...] のようなプレーンな文字列配列
-         (英単語など、ふりがな表示が不要な言語向け。文字そのものがそのまま入力対象になる)
    }
 ========================================== */
 
@@ -39,8 +38,9 @@ const TAG_DEFINITIONS = {
 };
 
 const questionSets = [];
+let questionsLoadState = 'loading'; // 'loading' | 'ready' | 'empty'
 
-// questions/*.js から呼ばれる登録関数。
+// questions/*.json から呼ばれる登録関数。
 // IDの欠落・重複や、questions配列が空といった明らかな不備はここで弾き、
 // 1セットの不備が他のセットの登録やアプリ全体に影響しないようにする。
 function registerQuestionSet(set) {
@@ -48,30 +48,47 @@ function registerQuestionSet(set) {
         if (!set || !set.id) { console.warn('registerQuestionSet: idの無い問題セットをスキップしました', set); return; }
         if (questionSets.some(s => s.id === set.id)) { console.warn(`registerQuestionSet: id "${set.id}" は既に登録済みのためスキップしました`); return; }
         if (!Array.isArray(set.questions) || set.questions.length === 0) { console.warn(`registerQuestionSet: "${set.id}" はquestionsが空のためスキップしました`); return; }
+        try {
+            // ★バージョン変更検知は本体機能ではないため、ここが失敗しても
+            // 問題セット自体の登録は止めない(records.js未読み込み等への保険)
+            if (typeof checkQuestionSetVersion === 'function') checkQuestionSetVersion(set);
+        } catch(e) { console.error('registerQuestionSet: バージョン確認中にエラー', e); }
         questionSets.push(set);
     } catch(e) {
         console.error('registerQuestionSet: 登録中にエラーが発生しました', e);
     }
 }
 
-// ★以前は問題セットを1つ増やすたびにindex.htmlへ<script>タグを1行
-// 手で足す必要があった。file://環境ではfetch()でJSONの一覧を読めないため、
-// QUESTION_SET_FILES(下の配列)にファイル名を並べておくだけで、あとはここで
-// <script>タグを動的に生成して読み込む。新しい問題セットを追加したいときは
-// (1) questions/にファイルを作る (2) この配列に1行足す、の2手順で済み、
-// index.html自体はもう触らなくてよい。
-// (各<script>は独立して読み込まれるため、1つが構文エラーで壊れていても
-// 他のファイルの登録には影響しない、という以前からの利点はそのまま)
-const QUESTION_SET_FILES = [
-    'words-ja-1.js',
-    'long-ja-1.js',
-    'words-en-1.js',
-    'score-ja-1.js',
-    'sen.js'
-];
+async function mpFetchJson(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    return await res.json();
+}
 
-QUESTION_SET_FILES.forEach(filename => {
-    const script = document.createElement('script');
-    script.src = 'questions/' + filename;
-    document.head.appendChild(script);
-});
+async function loadQuestionSets() {
+    try {
+        const manifest = await mpFetchJson('questions/manifest.json');
+        const files = Array.isArray(manifest.files) ? manifest.files : [];
+        if (files.length === 0) throw new Error('questions/manifest.json に files が見つかりません');
+
+        const results = await Promise.allSettled(files.map(async (filename) => {
+            const data = await mpFetchJson('questions/' + filename);
+            registerQuestionSet(data);
+        }));
+        results.forEach((r, i) => {
+            if (r.status === 'rejected') console.error(`[questions] questions/${files[i]} の読み込みに失敗しました:`, r.reason);
+        });
+    } catch (e) {
+        // manifest自体が読めない(オフライン・パス間違い・JSON構文ミス等)。
+        // ここで例外を投げっぱなしにせず、必ず後続の空チェックに進める。
+        console.error('[questions] questions/manifest.json の読み込みに失敗しました:', e);
+    } finally {
+        questionsLoadState = questionSets.length > 0 ? 'ready' : 'empty';
+        // ★成功・失敗を問わず必ず1回発火する。UI側はこれだけを見れば良い。
+        try {
+            window.dispatchEvent(new CustomEvent('questionsReady', { detail: { count: questionSets.length, state: questionsLoadState } }));
+        } catch(e) { console.error('[questions] questionsReadyイベントの発火に失敗しました:', e); }
+    }
+}
+
+const questionsLoadPromise = loadQuestionSets();

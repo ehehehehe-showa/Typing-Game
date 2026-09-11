@@ -5,15 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TypingMaster Pro</title>
     <link rel="stylesheet" href="style.css">
+    <!-- PWA対応: オフラインでも起動・プレイできるようにする(service-worker.js) -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#00ffcc">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="TypingMaster">
 </head>
 <body class="theme-auto cyber-overlay">
     <script>
-        // ★システムがライトモード設定の場合、window.onload(script.js側)の完了を待つ間
-        // 一瞬だけダークテーマで表示されてしまう「テーマのちらつき(FOUC)」を防ぐため、
-        // 他の要素が描画される前にここでdark/lightだけ先に確定させる。
-        // (実際の配色パレットはtheme.js/styles/*.jsがJSで適用するため、ここでは
-        // まだ触れない。あくまでこのクラスに対応するCSS側の簡易フォールバック値
-        // (:root, body.theme-light)が一瞬表示されるだけで、JS適用後に上書きされる)
+        // ★window.onload(script.js側)でtheme.js/styles/*.jsが実際の配色を
+        // 適用するまでの間、一瞬だけ既定の配色(またはダーク/ライトの簡易値)が
+        // 表示されてから上書きされる「ちらつき(FOUC)」を防ぐ。
+        // theme.jsのapplyAppearance()が適用した配色をlocalStorageにも
+        // キャッシュしているので、ここではそのキャッシュを他の要素が描画される
+        // 前に直接適用するだけにする(まだSTYLE_THEMES等は読み込まれていない
+        // 段階なので、theme.js側のロジックには一切依存しない、素朴な適用)。
+        // 初回訪問等でキャッシュが無い場合はdark/lightの判定だけ行い、
+        // 実際の配色はCSS側の:root/body.theme-lightフォールバック値に任せる。
         (function() {
             try {
                 var saved = JSON.parse(localStorage.getItem('typingSettingsCyber')) || {};
@@ -23,7 +33,15 @@
                 }
                 document.body.classList.remove('theme-auto');
                 document.body.classList.add('theme-' + theme);
-            } catch(e) {}
+
+                var cached = JSON.parse(localStorage.getItem('typingLastPalette'));
+                if (cached && cached.vars) {
+                    Object.keys(cached.vars).forEach(function(cssVar) {
+                        document.body.style.setProperty(cssVar, cached.vars[cssVar]);
+                    });
+                    document.body.classList.toggle('no-glow', !!cached.noGlow);
+                }
+            } catch(e) { /* キャッシュが壊れていてもCSS側のフォールバック値で表示は継続できる */ }
         })();
     </script>
     <canvas id="bg-canvas"></canvas>
@@ -48,9 +66,17 @@
         <div class="panel cyber-panel menu-panel">
             <h1 class="title cyber-glitch" data-text="TYPING MASTER">TYPING MASTER</h1>
             <div class="menu-buttons">
-                <button class="main-btn cyber-btn" onclick="openModeSelect()" data-i18n="menu_play">PLAY</button>
+                <button id="main-play-btn" class="main-btn cyber-btn" onclick="openModeSelect()" data-i18n="menu_play">PLAY</button>
                 <button class="main-btn cyber-btn" onclick="openScreen('status-view'); renderStatusScreen();" data-i18n="menu_status">STATUS</button>
                 <button class="main-btn cyber-btn" onclick="openScreen('settings-view')" data-i18n="menu_settings">SETTINGS</button>
+            </div>
+            <!-- ★問題データが1件も読み込めなかった場合のフォールバック表示。
+                 fallback.jsのquestionsReadyイベントで表示/非表示を切り替える。 -->
+            <div id="questions-unavailable-banner" class="q-unavailable-banner hidden">
+                <p class="q-unavailable-title" data-i18n="q_unavailable_title">Failed to load question data</p>
+                <p class="q-unavailable-body" data-i18n="q_unavailable_body">You may be offline, or your browser settings may be blocking the request.</p>
+                <p id="q-retry-status" class="q-retry-status"></p>
+                <button onclick="retryLoadQuestions()" class="cyber-btn-sub" data-i18n="q_retry_button">Retry</button>
             </div>
         </div>
     </div>
@@ -290,15 +316,18 @@
     <script src="settings.js"></script>
     <script src="records.js"></script>
     <script src="audio.js"></script>
+    <script src="fallback.js"></script>
+    <script src="anticheat.js"></script>
     <!-- ★マルチプレイ(PeerJS)は接続確立にインターネット上の仲介サーバーが要るため、
          このライブラリの読み込み自体もネットワーク接続が必要。シングルプレイは
          このスクリプトが読み込めなくても(オフラインでも)問題なく動作する。 -->
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="multiplayer.js"></script>
-    <!-- ★questions.js/theme.jsが、自身の中のファイル一覧(QUESTION_SET_FILES/
-         STYLE_FILES)を見て、questions/*.js・styles/*.jsを動的に読み込む。
-         新しいセット/スタイルを追加するときはそれぞれのファイル内の配列に
-         1行足すだけでよく、index.htmlをここから編集する必要はない。 -->
+    <!-- ★questions.jsはfetch()でquestions/manifest.jsonを取得し、そこに列挙された
+         questions/*.jsonを個別にfetchして読み込む(GitHub Pages配信でfetch()が
+         使えるようになったため、以前の<script>タグ動的生成方式から移行した)。
+         theme.jsは引き続きSTYLE_FILES配列からstyles/*.jsを動的読み込みする。
+         いずれも新しいセット/スタイルを追加する際にindex.html自体の編集は不要。 -->
     <script src="questions.js"></script>
     <script src="typing-engine.js"></script>
     <script src="theme.js"></script>

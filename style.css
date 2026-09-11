@@ -1314,3 +1314,54 @@ body.mp-active .mp-live-leaderboard {
     color: var(--accent-color);
 }
 
+/* ==========================================
+   問題データ読み込み失敗時のフォールバックUI
+========================================== */
+.q-unavailable-banner {
+    margin-top: 20px;
+    padding: 16px;
+    border: 1px solid var(--error-color);
+    border-radius: 8px;
+    background: rgba(255, 0, 85, 0.08);
+    text-align: left;
+}
+.q-unavailable-title {
+    color: var(--error-color);
+    font-weight: bold;
+    margin: 0 0 8px 0;
+}
+.q-unavailable-body {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: 0 0 10px 0;
+}
+.q-retry-status {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    min-height: 1.2em;
+}
+
+/* ==========================================
+   グローバルエラー通知トースト
+   (想定外の例外を、コンソールを見ない利用者にも気づけるようにする)
+========================================== */
+.global-error-toast {
+    position: fixed;
+    left: 50%;
+    bottom: -80px;
+    transform: translateX(-50%);
+    max-width: 90vw;
+    background: var(--error-color);
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: bold;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    z-index: 2000;
+    transition: bottom 0.3s ease-out;
+}
+.global-error-toast.active {
+    bottom: 20px;
+}
+
